@@ -1,5 +1,6 @@
 const { gql } = require("apollo-server-express");
 const Subject = require("../models/Subject");
+const SUBJECT_UPDATED = 'SUBJECT_UPDATED';
 
 const SubjecttypeDefs = gql`
   type Subject {
@@ -35,6 +36,9 @@ const SubjecttypeDefs = gql`
     createSubject(SubjectInput: SubjectInput): Subject,
     deleteSubject(id: ID): String
     updateSubjectState(id: ID!, newState: String!): Subject
+  }
+  type Subscription {
+    subjectUpdated: Subject
   }
 `; 
 
@@ -75,7 +79,12 @@ const Subjectresolvers = {
               throw new Error(`Error al actualizar el estado de la asignatura: ${error}`);
           }
       },
-    }
+    },
+    Subscription: {
+      subjectUpdated: {
+        subscribe: () => pubsub.asyncIterator([SUBJECT_UPDATED])
+      },
+    },
   };
 
   module.exports = {

@@ -1,51 +1,49 @@
 const express = require("express");
 const path = require("path");
 const { ApolloServer } = require("apollo-server-express");
+const { createServer } = require('http');
+const { execute, subscribe } = require('graphql');
+const { SubscriptionServer } = require('subscriptions-transport-ws');
+const { makeExecutableSchema } = require('@graphql-tools/schema');
 const { typeDefs, resolvers } = require("./controllers/SemestersController");
 const { SubjecttypeDefs, Subjectresolvers } = require("./controllers/SubjectsController");
 const { connectDb } = require("./config/database.js");
+const pubsub = require('./pubsub');
+const multer = require("multer");
+const socketIO = require("socket.io");
 
 
 const app = express();
+const httpServer = createServer(app);
+const io = socketIO(httpServer);
 
-//apalac
-const multer = require("multer");
-
-//socket
-const http = require("http");
-const socketIO = require("socket.io");
-
-const server = http.createServer(app);
-const io = socketIO(server);
-
-// Configuración de Multer para almacenar archivos en un directorio específico
+// Configuración de Multer para almacenar archivos
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/"); // Directorio donde se almacenarán los archivos subidos
+    cb(null, "uploads/");
   },
   filename: function (req, file, cb) {
-    // Se utiliza el nombre original del archivo, pero puedes personalizar esto según tus necesidades
     cb(null, file.originalname);
   },
 });
 const upload = multer({ storage: storage });
 
+
 // Ruta para manejar la subida de archivos
 app.post("/subir-archivo", upload.single("fileInput"), (req, res) => {
-  // Aquí puedes acceder a la información del archivo subido a través de req.file
   console.log(req.file);
-
-  // Realiza cualquier lógica adicional necesaria
-  // Después de que el archivo se haya subido exitosamente
-  io.emit("archivoSubido", "Archivo subido exitosamente (socket.io)");
+  io.emit("archivoSubido", "Se ha subido un archivo al servidor");
   res.send("Archivo subido exitosamente (socket.io)");
 });
 
 // Configurar Socket.IO para manejar conexiones
 io.on("connection", (socket) => {
   console.log("Un cliente se ha conectado");
+  socket.on('subjectUpdated', (data) => {
+    console.log('subjectUpdated event received:', data);
+    io.emit('subjectUpdatedNotification', data);
+  });
 });
-
 
 connectDb();
 
@@ -59,21 +57,28 @@ app.get("/", (req, res) => {
 
 
 async function start() {
+  const schema = makeExecutableSchema({ typeDefs: [typeDefs, SubjecttypeDefs], resolvers: [resolvers, Subjectresolvers] });
   const apolloServer = new ApolloServer({
-    typeDefs: [typeDefs, SubjecttypeDefs],
-    resolvers: [resolvers, Subjectresolvers],
+    schema,
+    context: ({ req }) => ({ io, pubsub }),
   });
 
   await apolloServer.start();
-  apolloServer.applyMiddleware({ app, path: "/api" });
+  apolloServer.applyMiddleware({ app });
 
-  app.use((req, res, next) => {
-    res.status(404).send("not found");
+  new SubscriptionServer({
+    execute,
+    subscribe,
+    schema,
+  }, {
+    server: httpServer,
+    path: apolloServer.graphqlPath,
   });
 
-  app.listen(process.env.PORT || 3000, () =>
-    console.log("Server on port", process.env.PORT || 3000)
-  );
+  const PORT = process.env.PORT || 3000;
+  httpServer.listen(PORT, () => {
+    console.log(`Server ready at http://localhost:${PORT}${apolloServer.graphqlPath}`);
+  });
 }
 
 start();
