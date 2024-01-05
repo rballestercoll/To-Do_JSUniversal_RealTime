@@ -64,7 +64,7 @@ async function start() {
   });
 
   await apolloServer.start();
-  apolloServer.applyMiddleware({ app });
+  apolloServer.applyMiddleware({ app, path: "/api" });
 
   new SubscriptionServer({
     execute,
